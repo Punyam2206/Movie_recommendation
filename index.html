@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Movie Recommender</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+    body { font-family: 'Inter', sans-serif; }
+    .card:hover { transform: translateY(-6px); box-shadow: 0 20px 40px rgba(0,0,0,0.4); }
+    .card { transition: transform 0.25s ease, box-shadow 0.25s ease; }
+    .loader { border: 3px solid #374151; border-top: 3px solid #a855f7; border-radius: 50%;
+              width: 36px; height: 36px; animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body class="bg-gray-950 text-white min-h-screen">
+
+  <!-- Header -->
+  <div class="bg-gray-900 border-b border-gray-800 px-6 py-4 flex items-center gap-3">
+    <span class="text-2xl">🎬</span>
+    <span class="text-xl font-bold tracking-tight">CineMatch</span>
+  </div>
+
+  <div class="max-w-5xl mx-auto px-6 py-14">
+
+    <!-- Hero -->
+    <div class="text-center mb-12">
+      <h1 class="text-5xl font-bold mb-4 bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">
+        Find Your Next Favourite Film
+      </h1>
+      <p class="text-gray-400 text-lg">Powered by your personal recommendation model</p>
+    </div>
+
+    <!-- Search -->
+    <div class="flex gap-3 max-w-2xl mx-auto mb-14">
+      <div class="relative flex-1">
+        <span class="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 text-lg">🔍</span>
+        <input id="search" type="text"
+          placeholder="e.g. The Dark Knight, Inception..."
+          class="w-full pl-11 pr-5 py-4 rounded-xl bg-gray-800 border border-gray-700
+                 focus:outline-none focus:border-purple-500 text-white text-base placeholder-gray-500"/>
+      </div>
+      <button id="btn" onclick="getRecommendations()"
+        class="px-7 py-4 bg-purple-600 hover:bg-purple-500 active:bg-purple-700
+               rounded-xl font-semibold text-base transition-colors">
+        Recommend
+      </button>
+    </div>
+
+    <!-- State: idle -->
+    <div id="idle" class="text-center text-gray-600 text-sm mt-8">
+      Enter any movie title above to get started
+    </div>
+
+    <!-- State: loading -->
+    <div id="loading" class="hidden flex-col items-center gap-4 mt-10">
+      <div class="loader mx-auto"></div>
+      <p class="text-gray-400 text-sm" id="loading-msg">Finding recommendations...</p>
+    </div>
+
+    <!-- State: error -->
+    <div id="error-box" class="hidden text-center mt-10">
+      <p class="text-red-400 text-base" id="error-msg"></p>
+    </div>
+
+    <!-- Results -->
+    <div id="results-section" class="hidden">
+      <p class="text-gray-400 text-sm mb-6" id="results-label"></p>
+      <div id="results" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-6"></div>
+    </div>
+
+  </div>
+
+  <script>
+    const TMDB_KEY = 'd256ca17e95a2ef0e8be775768e81ff7'; // ← replace this
+
+    function show(id) {
+      ['idle','loading','error-box','results-section'].forEach(s =>
+        document.getElementById(s).classList.add('hidden'));
+      const el = document.getElementById(id);
+      el.classList.remove('hidden');
+      if (id === 'loading') el.classList.add('flex');
+    }
+
+    async function getPoster(title) {
+      try {
+        const res = await fetch(
+          `https://api.themoviedb.org/3/search/movie?api_key=${TMDB_KEY}&query=${encodeURIComponent(title)}`
+        );
+        const data = await res.json();
+        const path = data.results?.[0]?.poster_path;
+        return path
+          ? `https://image.tmdb.org/t/p/w300${path}`
+          : `https://placehold.co/300x450/1f2937/6b7280?text=${encodeURIComponent(title)}`;
+      } catch {
+        return `https://placehold.co/300x450/1f2937/6b7280?text=${encodeURIComponent(title)}`;
+      }
+    }
+
+    async function getRecommendations() {
+      const title = document.getElementById('search').value.trim();
+      if (!title) return;
+
+      show('loading');
+      document.getElementById('loading-msg').textContent = 'Finding recommendations...';
+      document.getElementById('results').innerHTML = '';
+
+      try {
+        // Call your Flask backend
+        const res = await fetch(`/recommend?title=${encodeURIComponent(title)}`);
+        const data = await res.json();
+
+        if (!res.ok || data.error) {
+          show('error-box');
+          document.getElementById('error-msg').textContent =
+            `"${title}" was not found in the database. Try another title.`;
+          return;
+        }
+
+        const movies = data.recommendations;
+        document.getElementById('loading-msg').textContent = 'Fetching posters...';
+
+        show('results-section');
+        document.getElementById('results-label').textContent =
+          `Showing ${movies.length} recommendations for "${title}"`;
+
+        const resultsDiv = document.getElementById('results');
+
+        // Load cards with posters in parallel
+        await Promise.all(movies.map(async (movieTitle) => {
+          const poster = await getPoster(movieTitle);
+          const card = document.createElement('div');
+          card.className = 'card bg-gray-800 rounded-xl overflow-hidden cursor-pointer';
+          card.onclick = () => {
+            document.getElementById('search').value = movieTitle;
+            getRecommendations();
+          };
+          card.innerHTML = `
+            <div class="relative">
+              <img src="${poster}" alt="${movieTitle}"
+                class="w-full h-56 object-cover bg-gray-700"/>
+            </div>
+            <div class="p-3">
+              <p class="font-semibold text-sm leading-snug">${movieTitle}</p>
+              <p class="text-purple-400 text-xs mt-1">Click to explore →</p>
+            </div>`;
+          resultsDiv.appendChild(card);
+        }));
+
+      } catch (err) {
+        show('error-box');
+        document.getElementById('error-msg').textContent =
+          'Could not reach the server. Please try again in a moment.';
+      }
+    }
+
+    document.getElementById('search').addEventListener('keydown', e => {
+      if (e.key === 'Enter') getRecommendations();
+    });
+  </script>
+</body>
+</html>
